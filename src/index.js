@@ -1,33 +1,30 @@
-const cron = require('node-cron');
-const emailService = require('../services/email-service');
-const sender = require('../config/emailConfig');
+const express = require('express');
+const bodyParser = require('body-parser');
 
-/**
- * 10:00 am 
- * Every 5 minutes
- * We will check are their any pending emails which was expected to be sent 
- * by now  and is pending
- */
+const { PORT } = require('./config/serverConfig');
 
-const setupJobs = () => {
-    cron.schedule('*/2 * * * *', async () => {
-        const response = await emailService.fetchPendingEmails();
-        response.forEach((email) => {
-            sender.sendMail({
-                to: email.recepientEmail,
-                subject: email.subject,
-                text: email.content
-            }, async (err, data) => {
-                if(err) {
-                    console.log(err);
-                } else {
-                    console.log(data);
-                    await emailService.updateTicket(email.id, {status: "SUCCESS"});
-                }
-            });
-        });
-        console.log(response);
-    });    
+const TicketController = require('./controllers/ticket-controller');
+const EmailService = require('./services/email-service');
+
+const jobs = require('./utils/job');
+const { subscribeMessage, createChannel } = require('./utils/messageQueue');
+const { REMINDER_BINDING_KEY } = require('./config/serverConfig');
+
+const setupAndStartServer = async () => {
+    const app = express();
+    app.use(bodyParser.json());
+    app.use(bodyParser.urlencoded({extended: true}));
+
+    app.post('/api/v1/tickets', TicketController.create);
+
+    const channel = await createChannel();
+    subscribeMessage(channel, EmailService.subscribeEvents, REMINDER_BINDING_KEY);
+
+    app.listen(PORT, () => {
+        console.log(`Server started at port ${PORT}`);
+        // jobs();
+        
+    });
 }
 
-module.exports = setupJobs;
+setupAndStartServer();
